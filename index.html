@@ -127,6 +127,25 @@
   .empty-state span { font-size: 40px; display: block; margin-bottom: 12px; }
   .mono { font-family: 'DM Mono', monospace; }
 
+  /* RESUMEN MENSUAL */
+  .monthly-summary { margin-bottom: 28px; }
+  .monthly-summary h2 { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 14px; }
+  .month-block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 10px; }
+  .month-block:first-of-type { border-color: var(--accent); }
+  .month-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .month-name { font-size: 17px; font-weight: 700; text-transform: capitalize; }
+  .month-turnos { font-size: 12px; color: var(--muted); }
+  .month-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .month-stat { display: flex; flex-direction: column; gap: 3px; }
+  .month-stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .month-stat-val { font-family: 'DM Mono', monospace; font-size: 18px; font-weight: 500; }
+  .month-stat-val.t { color: var(--text); }
+  .month-stat-val.n { color: #a47fe0; }
+  .month-stat-val.d { color: #4ec99a; }
+  .month-bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 12px; overflow: hidden; }
+  .month-bar-fill { height: 100%; background: linear-gradient(90deg, #a47fe0, #6c8bef); border-radius: 2px; }
+  .month-bar-label { display: flex; justify-content: space-between; margin-top: 5px; font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; }
+
   .toast { position: fixed; bottom: 28px; right: 28px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px; font-size: 14px; opacity: 0; transform: translateY(10px); transition: all 0.3s; pointer-events: none; z-index: 100; }
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.ok { border-color: var(--day); color: #4ec99a; }
@@ -173,6 +192,8 @@
       <div class="timer-running" id="timer-display" style="display:none">00:00:00</div>
       <div class="timer-label" id="timer-label" style="display:none">tiempo transcurrido</div>
     </div>
+    <div class="monthly-summary" id="monthly-summary"></div>
+
     <div class="manual-section">
       <h3>Añadir turno manualmente</h3>
       <div class="form-row">
@@ -232,7 +253,7 @@
 
 <script>
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-let SCRIPT_URL = localStorage.getItem('fichaje_script_url') || 'https://script.google.com/macros/s/AKfycbzXyfUuWft4sHlZD1r9hZ0QiI0b8KqLPkyMSK7WMbeSxJYFvxBVlQptYN0bb_wgchCM/exec';
+let SCRIPT_URL = localStorage.getItem('fichaje_script_url') || '';
 let entries = [];
 let activeEntry = JSON.parse(localStorage.getItem('fichaje_active') || 'null');
 let timerInterval = null;
@@ -261,6 +282,57 @@ function calcTotalMins(startISO, endISO) {
 
 function getShiftType(night,total){if(night===0)return'day';if(night>=total*0.5)return'night';return'mixed';}
 
+// ── RESUMEN MENSUAL ───────────────────────────────────────────────────────────
+function renderMonthlySummary() {
+  const container = document.getElementById('monthly-summary');
+  if (!entries.length) { container.innerHTML = ''; return; }
+
+  // Group by YYYY-MM
+  const groups = {};
+  entries.forEach(e => {
+    const d = new Date(e.start);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (!groups[key]) groups[key] = { total: 0, night: 0, count: 0, year: d.getFullYear(), month: d.getMonth() };
+    groups[key].total += Number(e.totalMins);
+    groups[key].night += Number(e.nightMins);
+    groups[key].count++;
+  });
+
+  const rows = Object.entries(groups).sort((a,b) => b[0].localeCompare(a[0])).slice(0, 4);
+
+  container.innerHTML = `
+    <h2>Resumen mensual</h2>
+    ${rows.map(([key, g], i) => {
+      const monthName = new Date(g.year, g.month).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+      const dayMins = g.total - g.night;
+      const pct = g.total ? Math.round(g.night / g.total * 100) : 0;
+      return `
+      <div class="month-block">
+        <div class="month-header">
+          <span class="month-name">${monthName}</span>
+          <span class="month-turnos">${g.count} turno${g.count !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="month-stats">
+          <div class="month-stat">
+            <span class="month-stat-label">Total</span>
+            <span class="month-stat-val t">${fmtHours(g.total)}</span>
+          </div>
+          <div class="month-stat">
+            <span class="month-stat-label">🌙 Nocturnas</span>
+            <span class="month-stat-val n">${fmtHours(g.night)}</span>
+          </div>
+          <div class="month-stat">
+            <span class="month-stat-label">☀️ Diurnas</span>
+            <span class="month-stat-val d">${fmtHours(dayMins)}</span>
+          </div>
+        </div>
+        <div class="month-bar"><div class="month-bar-fill" style="width:${pct}%"></div></div>
+        <div class="month-bar-label"><span>☀️ ${100-pct}% diurnas</span><span>${pct}% nocturnas 🌙</span></div>
+      </div>`;
+    }).join('')}
+  `;
+}
+
 // ── GOOGLE SHEETS API ─────────────────────────────────────────────────────────
 async function sheetsGet() {
   if (!SCRIPT_URL) return null;
@@ -280,7 +352,7 @@ async function sheetsAdd(entry) {
   if (!SCRIPT_URL) return;
   try {
     const url = `${SCRIPT_URL}?action=add&id=${entry.id}&start=${encodeURIComponent(entry.start)}&end=${encodeURIComponent(entry.end)}&totalMins=${entry.totalMins}&nightMins=${entry.nightMins}`;
-    await fetch(url, { method: 'GET' });
+    await fetch(url);
   } catch(e) { console.error('Sheets add error', e); }
 }
 
@@ -295,18 +367,19 @@ async function loadEntries() {
   if (!SCRIPT_URL) {
     setSyncStatus('err','URL de Google Sheets no configurada → pestaña Config');
     entries = JSON.parse(localStorage.getItem('fichaje_local') || '[]');
+    renderMonthlySummary();
     return;
   }
   const remote = await sheetsGet();
   if (remote !== null) {
     entries = remote.map(e=>({...e, totalMins:Number(e.totalMins), nightMins:Number(e.nightMins)}));
     entries.sort((a,b)=>new Date(b.start)-new Date(a.start));
-    localStorage.setItem('fichaje_local', JSON.stringify(entries)); // cache
+    localStorage.setItem('fichaje_local', JSON.stringify(entries));
   } else {
-    // fallback to cache
     entries = JSON.parse(localStorage.getItem('fichaje_local') || '[]');
     setSyncStatus('err','Sin conexión — mostrando datos en caché');
   }
+  renderMonthlySummary();
 }
 
 // ── CLOCK ─────────────────────────────────────────────────────────────────────
@@ -351,6 +424,7 @@ async function toggleFichar() {
     document.getElementById('timer-label').style.display = 'none';
 
     toast(`Salida — ${fmtHours(totalMins)} (🌙 ${fmtHours(nightMins)})`);
+    renderMonthlySummary();
     await sheetsAdd(entry);
     setSyncStatus('ok','Guardado en Google Sheets ✓');
   }
@@ -391,6 +465,7 @@ async function addManual() {
   entries.sort((a,b)=>new Date(b.start)-new Date(a.start));
   localStorage.setItem('fichaje_local',JSON.stringify(entries));
   renderHistorial();
+  renderMonthlySummary();
   toast('Turno añadido ✓');
   await sheetsAdd(entry);
 }
@@ -514,7 +589,7 @@ function showTab(name){
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 document.getElementById('m-date').value=new Date().toISOString().split('T')[0];
-if(!SCRIPT_URL) setSyncStatus('err','Configura la URL de Google Sheets → pestaña Config');
+if(!SCRIPT_URL) { setSyncStatus('err','Configura la URL de Google Sheets → pestaña Config'); renderMonthlySummary(); }
 else loadEntries();
 </script>
 </body>
